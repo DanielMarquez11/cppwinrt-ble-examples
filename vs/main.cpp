@@ -30,13 +30,15 @@ using winrt::Windows::Devices::Bluetooth::BluetoothCacheMode;
 void scanForDevice();
 //--------------------------------------------------------------------------------------------
 uint64_t g_targetDevice = 0;
+BluetoothLEDevice g_device{ nullptr };
+GattCharacteristic g_heartRateChar{ nullptr };
 //--------------------------------------------------------------------------------------------
 
 int main() 
 {
     scanForDevice();
 }
-
+//--------------------------------------------------------------------------------------------
 void OnHeartRateChanged(GattCharacteristic const& sender,
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs const& args)
 {
@@ -50,27 +52,20 @@ void OnHeartRateChanged(GattCharacteristic const& sender,
     std::cout << "❤️ Heart Rate: " << bpm << " bpm\n";
 }
 
-//--------------------------------------------------------------------------------------------
 void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
-         BluetoothLEAdvertisementReceivedEventArgs eventArgs)
-{        
+    BluetoothLEAdvertisementReceivedEventArgs eventArgs)
+{
     if (g_targetDevice != 0)
         return;
+
     g_targetDevice = eventArgs.BluetoothAddress();
     std::cout << "Connecting to device: " << g_targetDevice << std::endl;
+
     watcher.Stop();
-    auto dev = BluetoothLEDevice::FromBluetoothAddressAsync(g_targetDevice).get();
-    if (!dev)
-    {
-        std::cout << "Failed to connect\n";
-        return;
-    }
-    auto servicesResult = dev.GetGattServicesAsync(BluetoothCacheMode::Uncached).get();
-    if (servicesResult.Status() != GattCommunicationStatus::Success)
-    {
-        std::cout << "Failed to get services\n";
-        return;
-    }
+
+    g_device = BluetoothLEDevice::FromBluetoothAddressAsync(g_targetDevice).get();
+    auto servicesResult = g_device.GetGattServicesAsync(BluetoothCacheMode::Uncached).get();
+
     for (auto service : servicesResult.Services())
     {
         if (service.Uuid() == winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattServiceUuids::HeartRate())
@@ -82,18 +77,22 @@ void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
             {
                 if (ch.Uuid() == winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristicUuids::HeartRateMeasurement())
                 {
-                    std::cout << "Subscribed to Heart Rate\n";
+                    g_heartRateChar = ch;
 
-                    ch.ValueChanged(OnHeartRateChanged);
+                    g_heartRateChar.ValueChanged(OnHeartRateChanged);
 
-                    ch.WriteClientCharacteristicConfigurationDescriptorAsync(
+                    auto status = g_heartRateChar.WriteClientCharacteristicConfigurationDescriptorAsync(
                         winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattClientCharacteristicConfigurationDescriptorValue::Notify
                     ).get();
+
+                    std::cout << "CCCD write status: " << (int)status << std::endl;
+                    std::cout << "Subscribed to Heart Rate\n";
                 }
             }
         }
     }
 }
+
 //--------------------------------------------------------------------------------------------
 void scanForDevice()
 {
