@@ -58,7 +58,8 @@ void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
     if (g_targetDevice != 0)
         return;
 
-    g_targetDevice = eventArgs.BluetoothAddress();
+    //g_targetDevice = eventArgs.BluetoothAddress();
+    g_targetDevice = 232406127976466;
     std::cout << "Connecting to device: " << g_targetDevice << std::endl;
 
     watcher.Stop();
