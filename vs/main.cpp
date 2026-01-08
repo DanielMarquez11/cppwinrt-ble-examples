@@ -34,10 +34,23 @@ BluetoothLEDevice g_device{ nullptr };
 GattCharacteristic g_heartRateChar{ nullptr };
 //--------------------------------------------------------------------------------------------
 
-int main() 
-{
-    scanForDevice();
+SOCKET s;
+SOCKET clientSocket;
+
+void handleData(const std::string& data) {
+    std::cout << "Client sent: " + data << std::endl;
 }
+
+int main()
+{
+
+    WSADATA wsa_data;
+    WSAStartup(MAKEWORD(1, 1), &wsa_data);
+    
+    scanForDevice();
+    return 0;
+}
+
 //--------------------------------------------------------------------------------------------
 void OnHeartRateChanged(GattCharacteristic const& sender,
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs const& args)
@@ -50,6 +63,13 @@ void OnHeartRateChanged(GattCharacteristic const& sender,
     uint16_t bpm = is16bit ? reader.ReadUInt16() : reader.ReadByte();
 
     std::cout << "❤️ Heart Rate: " << bpm << " bpm\n";
+	unsigned char byte = static_cast<unsigned char>(bpm);
+
+	int r = send(clientSocket, (const char*)&byte, sizeof(byte), 0);
+	std::cout << "Sent " << r << " bytes to client." << std::endl;
+    if (r == -1) {
+        std::cerr << "send() failed with error: " << WSAGetLastError() << std::endl;
+	}
 }
 
 void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
@@ -57,6 +77,37 @@ void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
 {
     if (g_targetDevice != 0)
         return;
+
+	s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	struct sockaddr_in server_addr;
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(3457);
+	server_addr.sin_addr.S_un.S_addr = INADDR_ANY;
+	bind(s, (const sockaddr*)&server_addr, sizeof(server_addr));
+	listen(s, SOMAXCONN);
+
+    sockaddr_in client;
+    int clientSize = sizeof(client);
+    clientSocket = accept(s, (sockaddr*)&client, &clientSize);
+    if (clientSocket == INVALID_SOCKET)
+    {
+        std::cerr << "accept() failed with error: " << WSAGetLastError() << std::endl;
+        closesocket(s);
+        return;
+    }
+
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+    if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0)
+    {
+        std::cout << host << " connected on port " << service << std::endl;
+    }
+    else
+    {
+        inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
+        std::cout << host << " connected on port " <<
+            ntohs(client.sin_port) << std::endl;
+    }   
 
     //g_targetDevice = eventArgs.BluetoothAddress();
     g_targetDevice = 232406127976466;
@@ -97,8 +148,6 @@ void OnAdverReceived(BluetoothLEAdvertisementWatcher watcher,
 //--------------------------------------------------------------------------------------------
 void scanForDevice()
 {
-    std::cout << "Lets Find some BLE Devices: Press Enter to Quit" << std::endl;
-
     BluetoothLEAdvertisementWatcher watch;
     watch.Received(&OnAdverReceived);
     watch.Start();
